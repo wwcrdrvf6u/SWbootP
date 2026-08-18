@@ -1,4 +1,4 @@
-name: Package Boot Folder
+name: Build and Release Boot
 
 on:
   workflow_dispatch: 
@@ -7,53 +7,59 @@ on:
       - main
 
 jobs:
-  build-and-package:
+  build-and-release:
     runs-on: ubuntu-latest
-    
+    # ⚠️ 必须授予 contents: write 权限，否则无法创建 Release
+    permissions:
+      contents: write 
+
     steps:
       # 1. 拉取代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 获取时间并生成 v.json (使用 cat <<EOF 避免 YAML 引号冲突)
-      - name: Generate v.json with UTC+8 time
+      # 2. 生成纯数字时间戳、v.json 并输出变量供后续步骤使用
+      - name: Generate Timestamp and v.json
+        id: build_info
         run: |
-          CURRENT_TIME=$(TZ='Asia/Shanghai' date +"%Y-%m-%d %H:%M:%S")
-          echo "Current compile time (UTC+8): $CURRENT_TIME"
+          # 获取纯数字 Unix 时间戳 (秒)
+          TIMESTAMP=$(date +%s)
+          # 将时间戳写入 GITHUB_OUTPUT，供后面的 Release 步骤作为 Tag 使用
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
           
-          # 使用 heredoc (EOF) 写入 JSON，完美避开 YAML 多行字符串的引号解析陷阱
+          echo "Current timestamp: $TIMESTAMP"
+          
+          # 生成 v.json
           cat <<EOF > v.json
           {
-            "version": "$CURRENT_TIME"
+            "version": "$TIMESTAMP"
           }
           EOF
           
-          echo "Generated v.json:"
           cat v.json
 
-      # 3. 移动文件并打包 (去除 boot 外层目录)
-      - name: Create ZIP archive (Flattened)
+      # 3. 打包 boot 文件夹 (去除外层 boot 目录)
+      - name: Package Boot Folder
         run: |
           if [ ! -d "boot" ]; then
             echo "Error: boot directory not found!"
             exit 1
           fi
           
-          # 将 v.json 移入 boot
           mv v.json boot/
-          
-          # 进入 boot 目录，将内部所有文件直接打包到上一级
           cd boot
           zip -r ../boot-package.zip .
           cd ..
           
-          echo "Archive created successfully. Contents preview:"
+          echo "Package created. Contents preview:"
           unzip -l boot-package.zip
 
-      # 4. 上传到 Artifacts
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      # 4. 自动创建 GitHub Release 并上传压缩包
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: boot-package-${{ github.run_number }}
-          path: boot-package.zip
-          retention-days: 7
+          # 使用刚才生成的时间戳作为版本号和 Tag (例如: v1755504600)
+          tag_name: v${{ steps.build_info.outputs.timestamp }}
+          name: Release v${{ steps.build_info.outputs.timestamp }}
+          files: boot-package.zip
+          generate_release_notes: true # 自动根据近期的 commit 生成更新日志
