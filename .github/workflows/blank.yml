@@ -1,0 +1,53 @@
+name: Package Boot Folder
+
+# 触发条件：支持手动触发，以及推送到 main 分支时自动触发
+on:
+  workflow_dispatch: 
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 拉取代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. 获取 UTC+8 时间并生成 v.json
+      - name: Generate v.json with UTC+8 time
+        run: |
+          # 获取 UTC+8 (北京时间) 的当前时间，格式: YYYY-MM-DD HH:MM:SS
+          CURRENT_TIME=$(TZ='Asia/Shanghai' date +"%Y-%m-%d %H:%M:%S")
+          echo "Current compile time (UTC+8): $CURRENT_TIME"
+          
+          # 生成 v.json 文件
+          echo "{
+    \"version\": \"$CURRENT_TIME\"
+}" > v.json
+          
+          echo "Generated v.json content:"
+          cat v.json
+
+      # 3. 将 boot 文件夹和 v.json 打包为 zip
+      - name: Create ZIP archive
+        run: |
+          # 检查 boot 文件夹是否存在，防止打包报错
+          if [ ! -d "boot" ]; then
+            echo "❌ Error: 'boot' directory not found in the repository!"
+            exit 1
+          fi
+          
+          # 打包：将 boot 目录和 v.json 放入压缩包根目录
+          zip -r boot-package.zip boot v.json
+          echo "✅ Archive 'boot-package.zip' created successfully."
+
+      # 4. 上传压缩包到 GitHub Artifacts
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-package-${{ github.run_number }}
+          path: boot-package.zip
+          retention-days: 7  # 保留 7 天，之后自动清理
